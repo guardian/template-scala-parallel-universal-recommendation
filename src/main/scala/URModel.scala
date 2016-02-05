@@ -68,10 +68,11 @@ class URModel(
     // convert cooccurrence matrices into correlators as RDD[(itemID, (actionName, Seq[itemID])]
     // do they need to be in Elasticsearch format
     logger.info("Converting cooccurrence matrices into correlators")
-    val correlators = if (coocurrenceMatrices.nonEmpty) coocurrenceMatrices.get.map { case (actionName, dataset) =>
-      dataset.asInstanceOf[IndexedDatasetSpark].toStringMapRDD(actionName).asInstanceOf[RDD[(String, Map[String, Any])]]
-      //} else List.empty[RDD[(String, Map[String, Seq[String]])]] // empty mena only calculating PopModel
-    } else List.empty[RDD[(String, Map[String, Any])]] // empty mena only calculating PopModel
+    val correlators = coocurrenceMatrices map { matrices =>
+      matrices.map { case (actionName, dataset) =>
+        dataset.asInstanceOf[IndexedDatasetSpark].toStringMapRDD(actionName).asInstanceOf[RDD[(String, Map[String, Any])]]
+      }
+    } getOrElse List.empty[RDD[(String, Map[String, Any])]] // empty mena only calculating PopModel
 
     // getting action names since they will be ES fields
     logger.info(s"Getting a list of action name strings")
@@ -120,7 +121,13 @@ class URModel(
     // collect all field names before ES index create
     val allFields = (allActions ++ allPropKeys).distinct // shouldn't need distinct but it's fast
 
-    if (propertiesRDD.isEmpty) {
+    propertiesRDD map { rdd =>
+      // this happens when updating only the popularity backfill model but to do a hotSwap we need to dup the
+      // entire index
+
+      // create a new index then hot-swap the new index by re-aliasing to it then delete old index
+      esClient.hotSwap(params.indexName, params.typeName, rdd, allFields, typeMappings)
+    } getOrElse {
       // Elasticsearch takes a Map with all fields, not a tuple
       logger.info("Grouping all correlators into doc + fields for writing to index")
       logger.info(s"Finding non-empty RDDs from a list of ${correlators.length} correlators and " +
@@ -142,14 +149,6 @@ class URModel(
           typeMappings)
       } else logger.warn("No data to write. May have been caused by a failed or stopped `pio train`, " +
         "try running it again")
-
-    } else {
-      // this happens when updating only the popularity backfill model but to do a hotSwap we need to dup the
-      // entire index
-
-      // create a new index then hot-swap the new index by re-aliasing to it then delete old index
-      esClient.hotSwap(params.indexName, params.typeName, propertiesRDD.get, allFields,
-        typeMappings)
     }
     true
   }

@@ -80,16 +80,15 @@ object PopModel {
 
     val intervalMillis = interval.toDurationMillis
     val olderPopRDD = calcPopular(appName, eventNames, olderInterval)
-    if ( olderPopRDD.nonEmpty) {
-      val newerPopRDD = calcPopular(appName, eventNames, newerInterval)
-      if ( newerPopRDD.nonEmpty ) {
-        val retval = newerPopRDD.get.join(olderPopRDD.get).map { case (item, (newerScore, olderScore)) =>
-          val velocity = (newerScore - olderScore)
-          (item, velocity)
-        }
-        if (!retval.isEmpty()) Some(retval) else None
-      } else None
-    } else None
+    for {
+      older <- olderPopRDD
+      newer <- calcPopular(appName, eventNames, newerInterval)
+      scores = newer.join(older).map { case (item, (newerScore, olderScore)) =>
+        val velocity = newerScore - olderScore
+        (item, velocity)
+      }
+      retval <- Some(scores) if !scores.isEmpty()
+    } yield retval
   }
 
   /** Creates a rank for each item by divding all events per item into three buckets and calculating the change in
@@ -103,30 +102,24 @@ object PopModel {
       olderInterval.getEnd().plusMillis((olderInterval.toDurationMillis)toInt))
     val newerInterval = new Interval(middleInterval.getEnd, interval.getEnd)
 
-    val olderPopRDD = calcPopular(appName, eventNames, olderInterval)
-    if (olderPopRDD.nonEmpty){ // todo: may want to allow an interval with no events, give them 0 counts
-      //val debug = olderPopRDD.get.count()
-      val middlePopRDD = calcPopular(appName, eventNames, middleInterval)
-      if (middlePopRDD.nonEmpty){
-        //val debug = middlePopRDD.get.count()
-        val newerPopRDD = calcPopular(appName, eventNames, newerInterval)
-        if (newerPopRDD.nonEmpty){
-          //val debug = newerPopRDD.get.count()
-          val newVelocityRDD = newerPopRDD.get.join(middlePopRDD.get).map { case( item, (newerScore, olderScore)) =>
-            val velocity = (newerScore - olderScore)
-            (item, velocity)
-          }
-          val oldVelocityRDD = middlePopRDD.get.join(olderPopRDD.get).map { case( item, (newerScore, olderScore)) =>
-            val velocity = (newerScore - olderScore)
-            (item, velocity)
-          }
-          Some( newVelocityRDD.join(oldVelocityRDD).map { case (item, (newVelocity, oldVelocity)) =>
-            val acceleration = (newVelocity - oldVelocity)
-            (item, acceleration)
-          })
-        } else None
-      } else None
-    } else None
+    for {
+      olderPopRDD <- calcPopular(appName, eventNames, olderInterval)
+      middlePopRDD <- calcPopular(appName, eventNames, middleInterval)
+      newerPopRDD <- calcPopular(appName, eventNames, newerInterval)
+    } yield {
+      val newVelocityRDD = newerPopRDD.join(middlePopRDD).map { case (item, (newerScore, olderScore)) =>
+        val velocity = newerScore - olderScore
+        (item, velocity)
+      }
+      val oldVelocityRDD = middlePopRDD.join(olderPopRDD).map { case (item, (newerScore, olderScore)) =>
+        val velocity = newerScore - olderScore
+        (item, velocity)
+      }
+      newVelocityRDD.join(oldVelocityRDD).map { case (item, (newVelocity, oldVelocity)) =>
+        val acceleration = newVelocity - oldVelocity
+        (item, acceleration)
+      }
+    }
   }
 
   def eventsRDD(appName: String, eventNames: List[String], interval: Interval)

@@ -194,26 +194,26 @@ class URAlgorithm(val ap: URAlgorithmParams)
       ap.appName, 
       backfillParams.duration, 
       start)(sc)
-    val popRDD = if (popModel.nonEmpty) {
-      val model = popModel.get.map { case (item, rank)  =>
+
+    val popRDD = popModel.map { rdd =>
+      rdd.map { case (item, rank) =>
         val newPM = Map(backfillFieldName -> JDouble(rank))
         (item, PropertyMap(newPM, DateTime.now, DateTime.now))
       }
-      Some(model)
-    } else None
+    }
 
-    val propertiesRDD = if (popModel.nonEmpty) {
-      val currentMetadata = esClient.getRDD(sc, ap.indexName, ap.typeName)
-      if (currentMetadata.nonEmpty) { // may be an empty index so ignore
-        Some(popModel.get.cogroup[collection.Map[String, AnyRef]](currentMetadata.get)
+    val propertiesRDD = for {
+      rdd <- popModel
+      currentMetadata <- esClient.getRDD(sc, ap.indexName, ap.typeName)
+    } yield {
+      rdd.cogroup[collection.Map[String, AnyRef]](currentMetadata)
         .map { case (item, (ranks, pms)) =>
-          if (ranks.nonEmpty) pms.head + (backfillFieldName -> ranks.head)
-          else if (pms.nonEmpty) pms.head
-          else Map.empty[String, AnyRef] // could happen if only calculating popularity, which may leave out items with
-          // no events
-        })
-      } else None
-    } else None
+        if (ranks.nonEmpty) pms.head + (backfillFieldName -> ranks.head)
+        else if (pms.nonEmpty) pms.head
+        else Map.empty[String, AnyRef] // could happen if only calculating popularity, which may leave out items with
+        // no events
+      }
+    }
 
     // returns the existing model plus new popularity ranking
     new URModel(
