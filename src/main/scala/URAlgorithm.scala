@@ -156,11 +156,11 @@ class URAlgorithm(val ap: URAlgorithmParams)
     } else None
 
     val allPropertiesRDD = if (popModel.nonEmpty) {
-      data.fieldsRDD.cogroup[Float](popModel.get).map { case (item, pms) =>
-        val pm = if (pms._1.nonEmpty && pms._2.nonEmpty) {
-          val newPM = pms._1.head.fields + (backfillFieldName -> JDouble(pms._2.head))
-          PropertyMap(newPM, pms._1.head.firstUpdated, DateTime.now())
-        } else if (pms._2.nonEmpty) PropertyMap(Map(backfillFieldName -> JDouble(pms._2.head)), DateTime.now(), DateTime.now())
+      data.fieldsRDD.cogroup[Float](popModel.get).map { case (item, (fields, pop)) =>
+        val pm = if (fields.nonEmpty && pop.nonEmpty) {
+          val newPM = fields.head.fields + (backfillFieldName -> JDouble(pop.head))
+          PropertyMap(newPM, fields.head.firstUpdated, DateTime.now())
+        } else if (pop.nonEmpty) PropertyMap(Map(backfillFieldName -> JDouble(pop.head)), DateTime.now(), DateTime.now())
         else PropertyMap( Map.empty[String, JValue], DateTime.now, DateTime.now) // some error????
         (item, pm)
       }

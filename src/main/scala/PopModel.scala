@@ -97,9 +97,9 @@ object PopModel {
   def calcHot(appName: String, eventNames: List[String] = List.empty,
     interval: Interval)(implicit sc: SparkContext): Option[RDD[(String, Float)]] = {
     val olderInterval = new Interval(interval.getStart,
-      interval.getStart().plusMillis((interval.toDurationMillis/3)toInt))
+      interval.getStart().plusMillis((interval.toDurationMillis / 3).toInt))
     val middleInterval = new Interval(olderInterval.getEnd,
-      olderInterval.getEnd().plusMillis((olderInterval.toDurationMillis)toInt))
+      olderInterval.getEnd().plusMillis(olderInterval.toDurationMillis.toInt))
     val newerInterval = new Interval(middleInterval.getEnd, interval.getEnd)
 
     for {
