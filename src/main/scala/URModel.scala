@@ -81,14 +81,10 @@ class URModel(
     val closureDateNames = dateNames.getOrElse(List.empty)
     // convert the PropertyMap into Map[String, Seq[String]] for ES
     logger.info("Converting PropertyMap into Elasticsearch style rdd")
-    var properties = List.empty[RDD[(String, Map[String, Any])]]
-    var allPropKeys = List.empty[String]
-    if (fieldsRDD.nonEmpty) {
-      properties = List(fieldsRDD.get.map { case (item, pm) =>
-        var m: Map[String, Any] = Map()
-        for (key <- pm.keySet) {
-          val k = key
-          val v = pm.get[JValue](key)
+
+    val properties: List[RDD[(String, Map[String, Any])]] = fieldsRDD.map(_.map {
+      case (item, pm) =>
+        val m: Set[Option[(String, Any)]] = pm.keySet map { key =>
           try {
             // if we get something unexpected, add ignore and add nothing to the map
             pm.get[JValue](key) match {
@@ -97,30 +93,27 @@ class URModel(
                   case JString(s) => s
                   case _ => ""
                 }
-                m = m + (key -> l)
-              case JString(s) => // name for this field is in engine params
-                if (closureDateNames.contains(key)) {
-                  // one of the date fields
-                  val dateTime = new DateTime(s)
-                  val date: java.util.Date = dateTime.toDate()
-                  m = m + (key -> date)
-                }
+                Some(key -> l)
+              case JString(s) if closureDateNames.contains(key) => // name for this field is in engine params
+                // one of the date fields
+                Some(key -> new DateTime(s).toDate)
               case JDouble(rank) => // only the ranking double from PopModel should be here
-                m = m + (key -> rank)
+                Some(key -> rank)
               case JInt(someInt) => // not sure what this is but pass it on
-                m = m + (key -> someInt)
+                Some(key -> someInt)
+              case _ => None
             }
           } catch {
-            case e: ClassCastException => e
-            case e: IllegalArgumentException => e
-            case e: MatchError => e
+            case e: ClassCastException => None
+            case e: IllegalArgumentException => None
             //got something we didn't expect so ignore it, put nothing in the map
           }
         }
-        (item, m)
-      })
-      allPropKeys = properties.head.flatMap(_._2.keySet).distinct.collect().toList
-    }
+        (item, m.flatten.toMap)
+      }
+    ).toList
+
+    val allPropKeys: List[String] = properties.headOption.toList.flatMap(_.flatMap(_._2.keySet).distinct().collect().toList)
 
 
     // these need to be indexed with "not_analyzed" and no norms so have to
