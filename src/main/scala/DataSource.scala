@@ -21,9 +21,8 @@ import _root_.io.prediction.controller.PDataSource
 import _root_.io.prediction.controller.EmptyEvaluationInfo
 import _root_.io.prediction.controller.EmptyActualResult
 import _root_.io.prediction.controller.Params
-import _root_.io.prediction.data.storage.{PropertyMap, Event}
+import _root_.io.prediction.data.storage.PropertyMap
 import _root_.io.prediction.data.store.PEventStore
-import org.apache.mahout.math.indexeddataset.{BiDictionary, IndexedDataset}
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import grizzled.slf4j.Logger

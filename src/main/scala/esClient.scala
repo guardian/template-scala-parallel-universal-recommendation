@@ -20,8 +20,7 @@ package org.template
 import java.util
 
 import grizzled.slf4j.Logger
-import io.prediction.data.storage.{Storage, StorageClientConfig, elasticsearch}
-import org.apache.hadoop.hbase.protobuf.generated.ClientProtos.GetRequest
+import io.prediction.data.storage.{Storage, elasticsearch}
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.elasticsearch.action.admin.indices.alias.get.GetAliasesRequest
@@ -29,18 +28,9 @@ import org.elasticsearch.action.admin.indices.create.CreateIndexRequest
 import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest
 import org.elasticsearch.action.admin.indices.exists.indices.IndicesExistsRequest
 import org.elasticsearch.action.admin.indices.refresh.RefreshRequest
-import org.elasticsearch.action.get.GetResponse
-import org.elasticsearch.client.transport.TransportClient
-import org.elasticsearch.common.settings.{Settings, ImmutableSettings}
 import org.joda.time.DateTime
 import org.json4s.jackson.JsonMethods._
 import org.elasticsearch.spark._
-import org.elasticsearch.node.NodeBuilder._
-import org.elasticsearch.common.collect.UnmodifiableIterator
-
-import scala.annotation.tailrec
-import scala.collection.immutable
-import scala.collection.parallel.mutable
 
 /** Elasticsearch notes:
   * 1) every query clause wil laffect scores unless it has a constant_score and boost: 0

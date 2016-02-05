@@ -17,8 +17,6 @@
 
 package org.template
 
-import java.util.Date
-
 import io.prediction.controller.{EngineFactory, Engine}
 
 /** This file contains case classes that are used with reflection to specify how query and config

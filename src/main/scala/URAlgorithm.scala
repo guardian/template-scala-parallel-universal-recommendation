@@ -20,25 +20,18 @@ package org.template
 import java.util
 import io.prediction.controller.P2LAlgorithm
 import io.prediction.controller.Params
-import io.prediction.data
 import io.prediction.data.storage.{PropertyMap, Event}
 import io.prediction.data.store.LEventStore
 import org.apache.mahout.math.cf.SimilarityAnalysis
 import org.apache.mahout.sparkbindings.indexeddataset.IndexedDatasetSpark
-import org.apache.spark.rdd.RDD
 import org.joda.time.DateTime
-import org.json4s
-import org.json4s.JsonAST
 import org.json4s.JsonAST._
-import scala.collection.JavaConverters._
-import scala.collection.immutable
 import scala.concurrent.duration.Duration
 import org.apache.spark.SparkContext
 import org.json4s.JsonDSL._
 import org.json4s.jackson.JsonMethods._
 import scala.collection.convert.wrapAsScala._
 import grizzled.slf4j.Logger
-import org.elasticsearch.spark._
 
 /** Setting the option in the params case class doesn't work as expected when the param is missing from
   * engine.json so set these for use in the algorithm when they are not present in the engine.json
