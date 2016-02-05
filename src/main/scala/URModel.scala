@@ -125,15 +125,12 @@ class URModel(
       logger.info("Grouping all correlators into doc + fields for writing to index")
       logger.info(s"Finding non-empty RDDs from a list of ${correlators.length} correlators and " +
         s"${properties.length} properties")
-      val esRDDs: List[RDD[(String, Map[String, Any])]] =
-        //(correlators ::: properties).filterNot(c => c.isEmpty())// for some reason way too slow
-        (correlators ::: properties)
-          //c.take(1).length == 0
+      val esRDDs = correlators ::: properties
+
       if (esRDDs.nonEmpty) {
         val esFields = groupAll(esRDDs).map { case (item, map) =>
           // todo: every map's items must be checked for value type and converted before writing to ES
-          val esMap = map + ("id" -> item)
-          esMap
+          map + ("id" -> item)
         }
         // create a new index then hot-swap the new index by re-aliasing to it then delete old index
         logger.info("New data to index, performing a hot swap of the index.")
