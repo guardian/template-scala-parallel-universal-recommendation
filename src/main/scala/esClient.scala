@@ -36,7 +36,9 @@ import org.joda.time.DateTime
 import org.json4s.jackson.JsonMethods._
 import org.elasticsearch.spark._
 import org.elasticsearch.node.NodeBuilder._
+import org.elasticsearch.common.collect.UnmodifiableIterator
 
+import scala.annotation.tailrec
 import scala.collection.immutable
 import scala.collection.parallel.mutable
 
@@ -100,7 +102,7 @@ object esClient {
     typeMappings: Option[Map[String, String]] = None,
     refresh: Boolean = false): Boolean = {
     if (!client.admin().indices().exists(new IndicesExistsRequest(indexName)).actionGet().isExists()) {
-      var mappings = """
+      val mappingsHead = """
         |{
         |  "properties": {
         """.stripMargin.replace("\n", "")
@@ -129,13 +131,13 @@ object esClient {
         |}
       """.stripMargin.replace("\n", "")
 
-      fieldNames.foreach { fieldName =>
+      val body = fieldNames map { fieldName =>
         if (typeMappings.nonEmpty && typeMappings.get.contains(fieldName))
-          mappings += (fieldName + mappingsField(typeMappings.get(fieldName)))
+          fieldName + mappingsField(typeMappings.get(fieldName))
         else // unspecified fields are treated as not_analyzed strings
-          mappings += (fieldName + mappingsField("string"))
+          fieldName + mappingsField("string")
       }
-      mappings += mappingsTail // any other string is not_analyzed
+      val mappings = mappingsHead + body.mkString("") + mappingsTail
 
       val cir = new CreateIndexRequest(indexName).mapping("items",mappings)
       val create = client.admin().indices().create(cir).actionGet()
@@ -256,18 +258,13 @@ object esClient {
     val allIndicesMap = client.admin().indices().getAliases(new GetAliasesRequest(alias)).actionGet().getAliases
 
     if (allIndicesMap.size() == 1) { // must be a 1-1 mapping of alias <-> index
-      var  indexName: String = ""
-      var itr = allIndicesMap.keysIt()
-      while ( itr.hasNext )
-        indexName = itr.next()
-      Some(indexName) // the one index the alias points to
+      Option(allIndicesMap.keys().toArray.asInstanceOf[Array[String]].apply(0))
     } else {
       // delete all the indices that are pointed to by the alias, they can't be used
       logger.warn("There is no 1-1 mapping of index to alias so deleting the old indexes that are referenced by the " +
         "alias. This may have been caused by a crashed or stopped `pio train` operation so try running it again.")
-      val i = allIndicesMap.keys().toArray.asInstanceOf[Array[String]]
-      for ( indexName <- i ){
-        deleteIndex(indexName, true)
+      allIndicesMap.keys().toArray.asInstanceOf[Array[String]] foreach { indexName =>
+        deleteIndex(indexName, refresh = true)
       }
 
       None // if more than one abort, need to clean up bad aliases

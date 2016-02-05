@@ -109,8 +109,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
 
   def train(sc: SparkContext, data: PreparedData): URModel = {
 
-    val dateNames = Some(List(ap.dateName.getOrElse(""), ap.availableDateName.getOrElse(""),
-      ap.expireDateName.getOrElse(""))) // todo: return None if all are empty?
+    val dateNames = Some(List(ap.dateName, ap.availableDateName, ap.expireDateName).flatten) // todo: return None if all are empty?
     val backfillFieldName = ap.backfillField.getOrElse(BackfillField()).name
 
     ap.recsModel.getOrElse(defaultURAlgorithmParams.DefaultRecsModel) match {
@@ -226,9 +225,6 @@ class URAlgorithm(val ap: URAlgorithmParams)
       typeMappings = Some(Map(backfillFieldName -> "float")))
   }
 
-  var queryEventNames = List.empty[String] // if passed in with the query overrides the engine.json list--used in MAP@k
-  //testing, this only effects which events are used in queries.
-
   /** Return a list of items recommended for a user identified in the query
     * The ES json query looks like this:
     *  {
@@ -312,10 +308,10 @@ class URAlgorithm(val ap: URAlgorithmParams)
   def predict(model: URModel, query: Query): PredictedResult = {
     logger.info(s"Query received, user id: ${query.user}, item id: ${query.item}")
 
-    queryEventNames = query.eventNames.getOrElse(ap.eventNames) // eventNames in query take precedence for the query
+    val queryEventNames = query.eventNames.getOrElse(ap.eventNames) // eventNames in query take precedence for the query
     // part of their use
     val backfillFieldName = ap.backfillField.getOrElse(BackfillField()).name
-    val queryAndBlacklist = buildQuery(ap, query, backfillFieldName)
+    val queryAndBlacklist = buildQuery(ap, query, backfillFieldName, queryEventNames)
     val recs = esClient.search(queryAndBlacklist._1, ap.indexName)
     // should have all blacklisted items excluded
     // todo: need to add dithering, mean, sigma, seed required, make a seed that only changes on some fixed time
@@ -324,13 +320,13 @@ class URAlgorithm(val ap: URAlgorithmParams)
   }
 
   /** Build a query from default algorithms params and the query itself taking into account defaults */
-  def buildQuery(ap: URAlgorithmParams, query: Query, backfillFieldName: String = ""): (String, List[Event]) = {
+  def buildQuery(ap: URAlgorithmParams, query: Query, backfillFieldName: String = "", queryEventNames: List[String]): (String, List[Event]) = {
 
     try{ // require the minimum of a user or item, if not then return popular if any
       //require( query.item.nonEmpty || query.user.nonEmpty, "Warning: a query must include either a user or item id")
 
       // create a list of all query correlators that can have a bias (boost or filter) attached
-      val alluserEvents = getBiasedRecentUserActions(query)
+      val alluserEvents = getBiasedRecentUserActions(query, queryEventNames)
 
       // create a list of all boosted query correlators
       val recentUserHistory = if ( ap.userBias.getOrElse(1f) >= 0f )
@@ -483,7 +479,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
 
   /** Get recent events of the user on items to create the recommendations query from */
   def getBiasedRecentUserActions(
-    query: Query): (Seq[BoostableCorrelators], List[Event]) = {
+    query: Query, queryEventNames: List[String]): (Seq[BoostableCorrelators], List[Event]) = {
 
     val recentEvents = try {
       LEventStore.findByEntity(
@@ -516,16 +512,13 @@ class URAlgorithm(val ap: URAlgorithmParams)
 
     val userEventBias = query.userBias.getOrElse(ap.userBias.getOrElse(1f))
     val userEventsBoost = if (userEventBias > 0 && userEventBias != 1) Some(userEventBias) else None
-    //val rActions = ap.eventNames.map { action =>
-    val rActions = queryEventNames.map { action =>
-      var items = List[String]()
 
-      for ( event <- recentEvents )
-        if (event.event == action && items.size <
-          ap.maxQueryEvents.getOrElse(defaultURAlgorithmParams.DefaultMaxQueryEvents)) {
-          items = event.targetEntityId.get :: items
-          // todo: may throw exception and we should ignore the event instead of crashing
-        }
+    val rActions = queryEventNames.map { action =>
+      val items = recentEvents.view
+        .filter(_.event == action)
+        .map(_.targetEntityId.get)
+        .take(ap.maxQueryEvents.getOrElse(defaultURAlgorithmParams.DefaultMaxQueryEvents))
+
       // userBias may be None, which will cause no JSON output for this
       BoostableCorrelators(action, items.distinct, userEventsBoost)
     }
@@ -565,88 +558,64 @@ class URAlgorithm(val ap: URAlgorithmParams)
   /** get part of query for dates and date ranges */
   def getFilteringDateRange( query: Query ): List[JValue] = {
 
-    var json: List[JValue] = List.empty[JValue]
     // currentDate in the query overrides the dateRange in the same query so ignore daterange if both
     val currentDate = query.currentDate.getOrElse(DateTime.now().toDateTimeISO.toString)
 
-    if (query.dateRange.nonEmpty &&
-      (query.dateRange.get.after.nonEmpty || query.dateRange.get.before.nonEmpty)) {
-      val name = query.dateRange.get.name
-      val before = query.dateRange.get.before.getOrElse("")
-      val after = query.dateRange.get.after.getOrElse("")
-      val rangeStart = s"""
-        |{
-        |  "constant_score": {
-        |    "filter": {
-        |      "range": {
-        |        "${name}": {
-        """.stripMargin
-
-      val rangeAfter = s"""
-        |          "gt": "${after}"
-        """.stripMargin
-
-      val rangeBefore = s"""
-        |          "lt": "${before}"
-        """.stripMargin
-
-      val rangeEnd = s"""
-        |        }
-        |      }
-        |    },
-        |    "boost": 0
-        |  }
-        |}
-        """.stripMargin
-
-      var range = rangeStart
-      if (!after.isEmpty) {
-        range += rangeAfter
-        if (!before.isEmpty) range += ","
-      }
-      if (!before.isEmpty) range += rangeBefore
-      range += rangeEnd
-
-      json = json :+ parse(range)
-    } else if (ap.availableDateName.nonEmpty && ap.expireDateName.nonEmpty) {// use the query date or system date
-      val availableDate = ap.availableDateName.get // never None
-      val expireDate = ap.expireDateName.get
-
-      val available = s"""
-        |{
-        |  "constant_score": {
-        |    "filter": {
-        |      "range": {
-        |        "${availableDate}": {
-        |          "lte": "${currentDate}"
-        |        }
-        |      }
-        |    },
-        |    "boost": 0
-        |  }
-        |}
-        """.stripMargin
-
-      json = json :+ parse(available)
-      val expire = s"""
-        |{
-        |  "constant_score": {
-        |    "filter": {
-        |      "range": {
-        |        "${expireDate}": {
-        |          "gt": "${currentDate}"
-        |        }
-        |      }
-        |    },
-        |    "boost": 0
-        |  }
-        |}
-        """.stripMargin
-      json = json :+ parse(expire)
-    } else {
+    dateRangeJson(query) orElse avilableExpiryJson(query) getOrElse {
       logger.info("Misconfigured date information, either your engine.json date settings or your query's dateRange is incorrect.\nIngoring date information for this query.")
+      List.empty
     }
-    json
+  }
+
+  private def dateRangeJson(query: Query): Option[List[JValue]] = {
+    for {
+      dateRange <- query.dateRange if dateRange.after.nonEmpty || dateRange.before.nonEmpty
+    } yield {
+      val jv: JValue = "constant_score" ->
+        ("filter" ->
+          ("range" ->
+            (dateRange.name ->
+              ("gt" -> dateRange.after) ~
+                ("lt" -> dateRange.before)
+              )
+            ) ~
+            ("boost" -> 0)
+          )
+      List(jv)
+    }
+  }
+
+  def avilableExpiryJson(query: Query): Option[List[JValue]] = {
+    for {
+      availableDate <- ap.availableDateName
+      expireDate <- ap.expireDateName
+    } yield {
+      val currentDate = query.currentDate.getOrElse(DateTime.now().toDateTimeISO.toString)
+
+      val available: JValue =
+        "constant_score" ->
+          ("filter" ->
+            ("range" ->
+              (availableDate ->
+                pair2jvalue("lte" -> currentDate)
+                )
+              ) ~
+              ("boost" -> 0)
+            )
+
+      val expire: JValue =
+        "constant_score" ->
+          ("filter" ->
+            ("range" ->
+              (expireDate ->
+                pair2jvalue("gt" -> currentDate)
+                )
+              ) ~
+              ("boost" -> 0)
+            )
+
+      available :: expire :: Nil
+    }
   }
 
 }
