@@ -31,46 +31,25 @@ package object conversions {
     def toStringMapRDD(actionName: String): RDD[(String, Map[String, Seq[String]])] = {
       @transient lazy val logger = Logger[this.type]
 
-      //val matrix = indexedDataset.matrix.checkpoint()
-      val rowIDDictionary = indexedDataset.rowIDs
       implicit val sc = indexedDataset.matrix.context.asInstanceOf[SparkDistributedContext].sc
+
+      val rowIDDictionary = indexedDataset.rowIDs.inverse
       val rowIDDictionary_bcast = sc.broadcast(rowIDDictionary)
 
-      val columnIDDictionary = indexedDataset.columnIDs
+      val columnIDDictionary = indexedDataset.columnIDs.inverse
       val columnIDDictionary_bcast = sc.broadcast(columnIDDictionary)
 
       // may want to mapPartition and create bulk updates as a slight optimization
       // creates an RDD of (itemID, Map[correlatorName, list-of-correlator-values])
-      indexedDataset.matrix.rdd.map[(String, Map[String, Seq[String]])] { case (rowNum, itemVector) =>
+      indexedDataset.matrix.rdd.flatMap[(String, Map[String, Seq[String]])] { case (rowNum, itemVector) =>
+        val itemID = rowIDDictionary_bcast.value.getOrElse(rowNum, "INVALID_ITEM_ID")
+        val values: List[String] = itemVector.nonZeroes.map(elm => columnIDDictionary_bcast.value.getOrElse(elm.index, ""))(scala.collection.breakOut)
 
-        // turn non-zeros into list for sorting
-        var itemList = List[(Int, Double)]()
-        for (ve <- itemVector.nonZeroes) {
-          val v = ve
-          itemList = itemList :+(ve.index, ve.get)
-        }
-        //sort by highest strength value descending(-)
-        val vector = itemList.sortBy { elem => -elem._2 }
-
-        val itemID = rowIDDictionary_bcast.value.inverse.getOrElse(rowNum, "INVALID_ITEM_ID")
-        try {
-
-          require(itemID != "INVALID_ITEM_ID", s"Bad row number in  matrix, skipping item ${rowNum}")
-          require(vector.nonEmpty, s"No values so skipping item ${rowNum}")
-
-          // create a list of element ids
-          val values = vector.map { item =>
-            columnIDDictionary_bcast.value.inverse.getOrElse(item._1, "") // should always be in the dictionary
-          }
-
-          (itemID, Map(actionName -> values))
-
-        } catch {
-          case cce: IllegalArgumentException => //non-fatal, ignore line
-            null.asInstanceOf[(String, Map[String, Seq[String]])]
-        }
-
-      }.filter(_ != null)
+        if (itemID != "INVALID_ITEM_ID" && values.nonEmpty)
+          Some(itemID -> Map(actionName -> values))
+        else
+          None
+      }
     }
   }
 
