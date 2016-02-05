@@ -75,10 +75,10 @@ class URModel(
 
     // getting action names since they will be ES fields
     logger.info(s"Getting a list of action name strings")
-    val allActions = coocurrenceMatrices.getOrElse(List.empty[(String, IndexedDatasetSpark)]).map(_._1)
+    val allActions = coocurrenceMatrices.getOrElse(List.empty).map(_._1)
 
     logger.info(s"Ready to pass date fields names to closure ${dateNames}")
-    val closureDateNames = dateNames.getOrElse(List.empty[String])
+    val closureDateNames = dateNames.getOrElse(List.empty)
     // convert the PropertyMap into Map[String, Seq[String]] for ES
     logger.info("Converting PropertyMap into Elasticsearch style rdd")
     var properties = List.empty[RDD[(String, Map[String, Any])]]
