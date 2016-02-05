@@ -155,7 +155,6 @@ class URModel(
   }
   
   def groupAll( fields: Seq[RDD[(String, (Map[String, Any]))]]): RDD[(String, (Map[String, Any]))] = {
-    //if (fields.size > 1 && !fields.head.isEmpty() && !fields(1).isEmpty()) {
     if (fields.size > 1) {
       fields.head.cogroup[Map[String, Any]](groupAll(fields.drop(1))).map { case (key, pairMapSeqs) =>
         // to be safe merge all maps but should only be one per rdd element
