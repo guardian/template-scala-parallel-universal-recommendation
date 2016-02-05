@@ -62,10 +62,8 @@ object PopModel {
     interval: Interval)(implicit sc: SparkContext): Option[RDD[(String, Float)]] = {
 
     val events = eventsRDD(appName, eventNames, interval)
-    val retval = events.map { e => (e.targetEntityId, e.event) }
-      .groupByKey()
-      .map { case(itemID, itEvents) => (itemID.get, itEvents.size.toFloat)}
-      .reduceByKey (_+_) // make this a double in Elaseticsearch)
+    val retval = events.map { e => (e.targetEntityId.get, 1f) }
+      .reduceByKey (_+_)
     if (!retval.isEmpty()) Some(retval) else None
   }
 
