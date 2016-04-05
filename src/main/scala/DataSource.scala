@@ -26,6 +26,8 @@ import _root_.io.prediction.data.store.PEventStore
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import grizzled.slf4j.Logger
+import org.json4s.JsonAST.{JString, JValue}
+import org.joda.time.DateTime
 
 /** Taken from engine.json these are passed in to the DataSource constructor
   *
@@ -58,7 +60,8 @@ class DataSource(val dsp: DataSourceParams)
       appName = dsp.appName,
       entityType = Some("user"),
       eventNames = Some(eventNames),
-      targetEntityType = Some(Some("item")))(sc)
+      targetEntityType = Some(Some("item")),
+      startTime = Some(DateTime.now.minusWeeks(6)))(sc)
 
     // now separate the events by event name
     val actionRDDs = eventNames.map { eventName =>
@@ -77,9 +80,16 @@ class DataSource(val dsp: DataSourceParams)
     }
 
     // aggregating all $set/$unsets for metadata fields, which are attached to items
+
+    val twoWeeksAgo = DateTime.now.minusWeeks(2)
     val fieldsRDD = PEventStore.aggregateProperties(
       appName= dsp.appName,
-      entityType=  "item")(sc)
+      entityType=  "item")(sc).filter({
+        case (_, pm) => pm.getOpt[JValue]("webPublicationDate").exists {
+          case JString(s) => new DateTime(s).isAfter(twoWeeksAgo)
+          case _ => false
+        }
+      })
 
     // Have a list of (actionName, RDD), for each action
     // todo: some day allow data to be content, which requires rethinking how to use EventStore
