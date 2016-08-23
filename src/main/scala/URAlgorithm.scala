@@ -102,7 +102,7 @@ class URAlgorithm(val ap: URAlgorithmParams)
 
   def train(sc: SparkContext, data: PreparedData): URModel = {
 
-    val dateNames = Some(List(ap.dateName, ap.availableDateName, ap.expireDateName).flatten) // todo: return None if all are empty?
+    val dateNames = Some(List(ap.dateName, ap.availableDateName, ap.expireDateName).flatten).filter(_.nonEmpty)
     val backfillFieldName = ap.backfillField.getOrElse(BackfillField()).name
 
     ap.recsModel.getOrElse(defaultURAlgorithmParams.DefaultRecsModel) match {
