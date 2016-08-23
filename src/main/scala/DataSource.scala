@@ -61,7 +61,8 @@ class DataSource(val dsp: DataSourceParams)
       entityType = Some("user"),
       eventNames = Some(eventNames),
       targetEntityType = Some(Some("item")),
-      startTime = Some(DateTime.now.minusWeeks(6)))(sc)
+      startTime = Some(DateTime.now.minusWeeks(6)),
+      untilTime = Some(DateTime.now.minusMinutes(5)))(sc)
 
     // now separate the events by event name
     val actionRDDs = eventNames.map { eventName =>
