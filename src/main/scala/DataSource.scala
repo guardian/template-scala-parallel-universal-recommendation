@@ -26,7 +26,7 @@ import _root_.io.prediction.data.store.PEventStore
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import grizzled.slf4j.Logger
-import org.json4s.JsonAST.{JString, JValue}
+import org.json4s.{JString, JValue}
 import org.joda.time.DateTime
 
 /** Taken from engine.json these are passed in to the DataSource constructor
